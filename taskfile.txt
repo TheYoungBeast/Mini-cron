@@ -1,0 +1,4 @@
+# put '#' to comment the line
+# format:<hour>:<minutes>:<command>:<mode>
+12:24:grep user:2
+10:24:ls | wc:1
