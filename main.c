@@ -1,7 +1,8 @@
 #include <stdio.h>
-
 #include "fileparse.h"
 #include "taskstruct.h"
+#include "Daemon.h"
+#include "the_thing.h"
 
 int main(int argc, char* argv[])
 {
@@ -9,12 +10,12 @@ int main(int argc, char* argv[])
     {
         printf("Usage: minicron <taskfile> <outfile>\n");
         return 0;
-    }
-
+    }	
     task_array array = parse_taskfile(argv[1]);
 
     for(size_t i = 0; i < array.size; i++)
         printf("%u:%u:%s:%u\n", array.data[i].hr, array.data[i].min, array.data[i].command, array.data[i].mode);
-
+        
+   everything(array,argv[2]);
     return 0;
 }
