@@ -25,37 +25,23 @@ void everything(task_array ta, char outfile_argument[]) /*ta-task array */
 	/*sleep until midnight if there's no more tasks for the day */
 	int sleeptime=86340 - ((tm.tm_hour)*3600+(tm.tm_min*60));
 	task_mode mode = MODE_STDOUT;
-	int cmd_index=-1; /*a task that does nothing */
-	for(int i =0; i< ta.size; i++)
-	{
+	int cmd_index=-1; /*a task that does nothing */	
 		for(int j = tm.tm_hour; j<24; j++)
 		{
 			for(int k = tm.tm_min; k<60; k++)
 			{
-				if(ta.data[i].hr == j && ta.data[i].min == k)
+			for(int i =0; i< ta.size; i++)
 				{
-				printf("%d", tm.tm_hour);
-				printf("%s", "\n");
-				printf("%d", tm.tm_min);
-				printf("%s", "\n");
-				printf("%d", j);
-				printf("%s", "\n");
-				printf("%d", k);
-				printf("%s", "\n");
-				printf("%d", (j*3600)+(k*60));
-				printf("%s", "\n");
-				printf("%d", (tm.tm_hour)*3600+(tm.tm_min*60));
-				printf("%s", "\n");
-				sleeptime = ((j*3600)+(k*60)-((tm.tm_hour)*3600+(tm.tm_min*60)));
-				 mode=ta.data[i].mode;	
-				printf("%d", sleeptime);
-				printf("%s", "\n"); 		
-				 cmd_index=i;
-				 j=24; k=60; i=ta.size;
+					if(ta.data[i].hr == j && ta.data[i].min == k)
+					{				
+					sleeptime = ((j*3600)+(k*60)-((tm.tm_hour)*3600+(tm.tm_min*60)));
+					 mode=ta.data[i].mode;						
+					 cmd_index=i;
+					 j=24; k=60; i=ta.size;
+					}
 				}
 			}
-		}
-	}
+		}	
 	/*running the Daemon */
 	if(cmd_index == -1)
 	{
