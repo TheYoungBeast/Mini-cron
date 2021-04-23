@@ -1,4 +1,6 @@
 # put '#' to comment the line
 # format:<hour>:<minutes>:<command>:<mode>
-12:24:grep user:2
-10:24:ls | wc:1
+# 19:24:ls | wc:1
+21:21:ls -l | wc -l:2
+03:32:ls -l:2
+03:32:cat /home/dominik/lorem-ipsum.txt | grep ac:2
