@@ -23,7 +23,10 @@ int comparator(const void* elem1, const void* elem2)
     return 0;
 }
 
-
+/**
+ * Sorts tasks
+ * @param mngr pointer to task_manager (struct)
+ */
 void sort_task(task_manager* mngr)
 {
     qsort(mngr->array.data, mngr->array.size, sizeof(task), comparator);
