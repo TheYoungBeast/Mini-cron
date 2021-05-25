@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <syslog.h>
+
 #include <libexplain/open.h>
 #include <libexplain/read.h>
 
@@ -62,11 +64,11 @@ task_array parse_taskfile(const char* filename)
         int err = errno;
         char message[3000];
         explain_message_errno_open(message, sizeof(message), err, filename, O_RDONLY, 0);
-        write(STDERR_FILENO, message, strlen(message));
+        syslog(LOG_INFO, "%s", message);
         exit(EXIT_FAILURE);
     }
 
-    task_array array = {0, NULL};
+    task_array array = { 0 };
 
     char buffer[ 1024 ];
     FILE* stream = fdopen(desc, "r");
@@ -78,7 +80,7 @@ task_array parse_taskfile(const char* filename)
         if(buffer[0] == '#')
             continue;
 
-        task ttask;
+        task ttask = { 0 };
         size_t pos1, pos2;
         char buff2[ 20 ];
         char* command = parse_command(buffer, &pos1, &pos2);
@@ -89,15 +91,32 @@ task_array parse_taskfile(const char* filename)
         sscanf(buff2, "%u:%u:%u", &ttask.hr, &ttask.min, &ttask.mode);
         trim(ttask.command);
 
-        if(ttask.hr >= 24)
-            printf("Invalid hour format\n");
-        if(ttask.min >= 60)
-            printf("Invalid minute format\n");
+        if(ttask.hr >= 24 || ttask.hr < 0)
+        {
+            syslog(LOG_INFO, "[TASK] Invalid hour: %d. Supported format is 0-23", ttask.hr);
+            closelog();
+            continue;
+        }
+        if(ttask.min >= 60 || ttask.hr < 0)
+        {
+            syslog(LOG_INFO, "[TASK] Invalid minute: %d. Supported format is 0-59", ttask.min);
+            closelog();
+            continue;
+        }
         if(!(strlen(ttask.command) > 0))
-            printf("Invalid command %s\n", ttask.command);
-        if(ttask.mode > 2)
-            printf("Invalid mode format %u\n", ttask.mode);
+        {
+            syslog(LOG_INFO, "[TASK] Invalid command");
+            closelog();
+            continue;
+        }
+        if(ttask.mode > 2 || ttask.mode < 0)
+        {
+            syslog(LOG_INFO, "[TASK] Invalid mode: %d. Supported format is 0-2", ttask.mode);
+            closelog();
+            continue;
+        }
         
+        ttask.status = STATUS_PENDING;
         array.data = realloc(array.data, sizeof(task)*(++array.size));
         memcpy(&array.data[array.size-1], &ttask, sizeof(ttask));
     }
