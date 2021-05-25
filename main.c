@@ -138,6 +138,9 @@ int main(int argc, char** argv)
         /* count the time (in seconds) to sleep - wake only to do pending tasks */
         unsigned long sleeptime = find_nearest_time((task_array*) &(task_mngr.array), timeinfo->tm_hour, timeinfo->tm_min);
         
+        if(sleeptime > timeinfo->tm_sec)
+            sleeptime -= timeinfo->tm_sec; // make it "to second" precision
+        
         if(sleep(sleeptime)) // sleep interupted
             continue; 
 
@@ -224,8 +227,6 @@ int main(int argc, char** argv)
                                 break;
                             }
                         }
-
-                        dup2(pipedes[ 0 ], STDIN_FILENO);
 
                         /* pre message/header before output dump */
                         char pretask_message[ 1024 ] = {'\0'};
