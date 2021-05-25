@@ -1,4 +1,4 @@
-objects = main.o fileparse.o signals.o sort.o
+objects = main.o fileparse.o signals.o sort.o misc.o
 app = minicron
 
 all: $(objects)
@@ -11,6 +11,7 @@ main.o: fileparse.h signals.h
 fileparse.o: fileparse.h taskstruct.h
 signals.o: signals.h
 sort.o: sort.h taskstruct.h
+misc.o: misc.h
 
 .PHONY : clean
 clean :

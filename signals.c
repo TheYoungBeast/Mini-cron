@@ -11,6 +11,10 @@
 extern volatile task_manager task_mngr;
 extern volatile char* taskfile;
 
+/**
+ * Function signal handler
+ * @param signum signal's id
+ */
 void signal_handler(int signum)
 {
     static volatile sig_atomic_t terminate = 0;

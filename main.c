@@ -22,11 +22,12 @@
 #include "taskstruct.h"
 #include "signals.h"
 #include "sort.h"
+#include "misc.h"
 
 #define APP_USAGE_INFO          "Usage: minicron <taskfile> <outfile>\n"
-#define TASK_COMPLETE_INFO      "Task: %s has been done recently"
 #define TASK_PROCESSING_INFO    "Processing the task: [%s]"
-#define TASK_COMPLETE_MESSAGE   "Task: [%02d:%02d] with provided command:%s has been executed with following output: "
+#define TASK_COMPLETE_MESSAGE   "Task: [%02d:%02d] %s has been executed with following output: "
+#define PROCESS_RETURNED        "Process %s returned with status code: %d"
 
 /**
  * 
@@ -36,6 +37,14 @@
  * 
  **/
 
+volatile task_manager task_mngr = (task_manager){ 0 };
+volatile char* taskfile = NULL;
+
+/**
+ * Prepears array of arguments for execvp function
+ * @param tcommand command line
+ * @return An array of arguments
+ */
 char** get_command_args(const char* tcommand)
 {
     char** args = NULL;
@@ -66,74 +75,6 @@ char** get_command_args(const char* tcommand)
     return args;
 }
 
-unsigned long find_nearest_time(task_array* tarray, unsigned current_hr, unsigned current_min)
-{
-    if(tarray == NULL || tarray->size == 0)
-        return 0;
-
-    unsigned current_time = (current_hr*60 + current_min)*60;
-    unsigned long first_task_time = ((tarray->data[ 0 ].hr*60 + tarray->data[ 0 ].min)*60);
-    long diff = 0;
-
-    if(current_time > first_task_time)
-        diff = ((24*60*60)-current_time) + first_task_time; // time to end of the day + actuall task time
-    else
-        diff = first_task_time - current_time;
-    
-    for(size_t i = 0; i < tarray->size; i++)
-    {
-        unsigned task_time = (tarray->data[ i ].hr*60 + tarray->data[ i ].min)*60;
-
-        if(task_time < current_time) // All the data is sorted
-            continue;
-
-        if((current_time - task_time) < diff)
-        {
-            diff = current_time - task_time;
-            break; // all data is sorted - it means if we find the first (nearest) time 
-        }          // the others will be the same or even further than our current time
-    }
-
-    return diff;
-}
-
-void set_tasks_queue(task_manager* tm, unsigned takstime)
-{
-    task_array* array = &(tm->array);
-
-    if(array->data == NULL)
-        return;
-
-    for(size_t i = 0; i < array->size; i++)
-    {
-        unsigned ttime = (array->data[ i ].hr*60 + array->data[ i ].min)*60;
-
-        if(ttime < takstime)
-            continue;
-        
-        if(ttime > takstime) // data is sorted, so we won't find more tasks within 'tasktime'
-            break;
-
-        tm->queue = realloc(tm->queue, sizeof(task*)*(++tm->queue_size));
-        tm->queue[ tm->queue_size-1 ] = &(array->data[ i ]);
-    }
-} 
-
-int is_pipable(const char* command)
-{
-    char* pos = strchr(command, (int) '|');
-
-    if(pos == NULL)
-        return 0;
-    
-    return pos-command;
-}
-
-
-volatile task_manager task_mngr = (task_manager){ 0 };
-volatile char* taskfile = NULL;
-
-
 int main(int argc, char** argv)
 {
     if(argc < 3)
@@ -147,30 +88,16 @@ int main(int argc, char** argv)
     pid_t pid = fork();
 
     if (pid < 0) // fork failure
-    {
-        int error = errno;
-        char message[3000];
-        explain_message_errno_fork(message, sizeof(message), error);
-        syslog(LOG_INFO, "%s", message);
-	    closelog();
-        exit(EXIT_FAILURE);
-    }
+        handle_fork_error();
 
     if (pid > 0) // exit parent process
         exit(EXIT_SUCCESS);
 
-    umask(0);
+    umask(0); // sets the calling process's file mode creation mask
                 
     pid_t sid = setsid(); // become new process group leader
-    if (sid < 0) 
-    {
-        int err = errno;
-        char message[3000];
-        explain_message_errno_setsid(message, sizeof(message), err);
-        syslog(LOG_INFO, "%s", message);
-	    closelog();
-        exit(EXIT_FAILURE);
-    }
+    if (sid < 0)
+        handle_setsid_error();
 
     // Change the current working directory
     char pathname[] = {"/"};
@@ -210,7 +137,10 @@ int main(int argc, char** argv)
 
         /* count the time (in seconds) to sleep - wake only to do pending tasks */
         unsigned long sleeptime = find_nearest_time((task_array*) &(task_mngr.array), timeinfo->tm_hour, timeinfo->tm_min);
-        sleep(sleeptime);
+        
+        if(sleep(sleeptime)) // sleep interupted
+            continue; 
+
         time(&rawtime);
         timeinfo = localtime(&rawtime);
         unsigned long tasktime = (timeinfo->tm_hour*60 + timeinfo->tm_min)*60;
@@ -245,37 +175,22 @@ int main(int argc, char** argv)
                 pid_t pid2 = (pid_t) 0;
 
                 if (pid < 0) // fork failure
-                {
-                    int error = errno;
-                    char message[3000];
-                    explain_message_errno_fork(message, sizeof(message), error);
-                    syslog(LOG_INFO, "%s", message);
-                    closelog();
-                    exit(EXIT_FAILURE);
-                }
+                    handle_fork_error();
 
                 if(pid == (pid_t) 0) // child 1
                 {
+                    pid_t sid = setsid();
+
+                    if(sid < 0)
+                        handle_setsid_error();
+
                     int pipedes[ 2 ];
                     if( pipe(pipedes) < 0 ) // pipe & error handling
-                    {
-                        int err = errno;
-                        char message[3000];
-                        explain_message_errno_pipe(message, sizeof(message), err, pipedes);
-                        write(STDERR_FILENO, message, strlen(message));
-                        exit(EXIT_FAILURE);
-                    }
+                        handle_pipe_error(pipedes);
 
                     pid2 = fork();
                     if (pid2 < 0) // fork failure
-                    {
-                        int error = errno;
-                        char message[3000];
-                        explain_message_errno_fork(message, sizeof(message), error);
-                        syslog(LOG_INFO, "%s", message);
-                        closelog();
-                        exit(EXIT_FAILURE);
-                    }
+                        handle_fork_error();
 
                     if(pid2 == (pid_t) 0) // child2
                     {
@@ -286,16 +201,31 @@ int main(int argc, char** argv)
                         int output = open(argv[ 2 ], flags, mode);
 
                         if(output < 0) // open file failure
+                             handle_open_error(argv[ 2 ], flags, mode);
+
+                        dup2(pipedes[ 0 ], STDIN_FILENO);
+
+                        switch(pending_task->mode)
                         {
-                            int err = errno;
-                            char message[3000];
-                            explain_message_errno_open(message, sizeof(message), err, argv[ 2 ], flags, mode);
-                            syslog(LOG_INFO, "%s", message);
-                            exit(EXIT_FAILURE);
+                            case 0:
+                            {
+                                dup2(output, STDERR_FILENO);
+                                break;
+                            }
+                            case 1:
+                            {
+                                dup2(output, STDOUT_FILENO);
+                                break;
+                            }
+                            case 2:
+                            {
+                                dup2(output, STDERR_FILENO);
+                                dup2(output, STDOUT_FILENO);
+                                break;
+                            }
                         }
 
                         dup2(pipedes[ 0 ], STDIN_FILENO);
-                        dup2(output, STDOUT_FILENO);
 
                         /* pre message/header before output dump */
                         char pretask_message[ 1024 ] = {'\0'};
@@ -303,13 +233,8 @@ int main(int argc, char** argv)
                         write(STDOUT_FILENO, pretask_message, strlen(pretask_message));
 
                         if (execvp(args2[ 0 ], args2) < 0) // exec failure
-                        {
-                            int err = errno;
-                            char message[3000];
-                            explain_message_errno_execvp(message, sizeof(message), err, args2[ 0 ], args2);
-                            syslog(LOG_INFO, "%s", message);
-                            exit(EXIT_FAILURE);
-                        }
+                            handle_execvp_error(args2[ 0 ], args2);
+
                     } // child 2
                     else // child 1
                     { 
@@ -317,19 +242,17 @@ int main(int argc, char** argv)
                         dup2(pipedes[ 1 ], STDOUT_FILENO);
 
                         if (execvp(args1[ 0 ], args1) < 0) // exec failure
-                        {
-                            int err = errno;
-                            char message[3000];
-                            explain_message_errno_execvp(message, sizeof(message), err, args1[ 0 ], args1);
-                            syslog(LOG_INFO, "%s", message);
-                            exit(EXIT_FAILURE);
-                        }
+                            handle_execvp_error(args1[ 0 ], args1);
                     }
                 } // child 1
                 else // parent
                 {
-                    waitpid(pid, NULL, 0);
-                    waitpid(pid2, NULL, 0);
+                    int status1, status2;
+                    waitpid(pid, &status1, 0);
+                    waitpid(pid2, &status2, 0);
+
+                    syslog(LOG_INFO, PROCESS_RETURNED, command1, status1);
+                    syslog(LOG_INFO, PROCESS_RETURNED, command2, status2);
                 }
             }
             else // single task (non-pipable)
@@ -338,31 +261,41 @@ int main(int argc, char** argv)
 
                 pid_t pid = fork();
                 if (pid < 0) // fork failure
-                {
-                    int error = errno;
-                    char message[3000];
-                    explain_message_errno_fork(message, sizeof(message), error);
-                    syslog(LOG_INFO, "%s", message);
-                    closelog();
-                    exit(EXIT_FAILURE);
-                }
+                    handle_fork_error();
 
                 if(pid == (pid_t) 0) // child
                 {
+                    pid_t sid = setsid();
+
+                    if(sid < 0)
+                        handle_setsid_error();
+
                     int flags = O_WRONLY | O_APPEND | O_CREAT;
                     mode_t mode = S_IRWXU;
                     int output = open(argv[ 2 ], flags, mode); // open output file
 
                     if(output < 0) // open file failure
-                    {
-                        int err = errno;
-                        char message[3000];
-                        explain_message_errno_open(message, sizeof(message), err, argv[ 2 ], flags, mode);
-                        syslog(LOG_INFO, "%s", message);
-                        exit(EXIT_FAILURE);
-                    }
+                        handle_open_error(argv[ 2 ], flags, mode);
 
-                    dup2(output, STDOUT_FILENO);
+                    switch(pending_task->mode)
+                    {
+                        case 0:
+                        {
+                            dup2(output, STDERR_FILENO);
+                            break;
+                        }
+                        case 1:
+                        {
+                            dup2(output, STDOUT_FILENO);
+                            break;
+                        }
+                        case 2:
+                        {
+                            dup2(output, STDERR_FILENO);
+                            dup2(output, STDOUT_FILENO);
+                            break;
+                        }
+                    }
 
                     /* pre message/header before output dump */
                     char pretask_message[ 1024 ] = {'\0'};
@@ -370,16 +303,14 @@ int main(int argc, char** argv)
                     write(STDOUT_FILENO, pretask_message, strlen(pretask_message));
 
                     if (execvp(args[ 0 ], args) < 0) // exec failure
-                    {
-                        int err = errno;
-                        char message[3000];
-                        explain_message_errno_execvp(message, sizeof(message), err, args[ 0 ], args);
-                        syslog(LOG_INFO, "%s", message);
-                        exit(EXIT_FAILURE);
-                    }
+                        handle_execvp_error(args[ 0 ], args);
                 }
                 else // parent
-                    waitpid(pid, NULL, 0);
+                {
+                    int status;
+                    waitpid(pid, &status, 0);
+                    syslog(LOG_INFO, PROCESS_RETURNED, pending_task->command, status);
+                }
             }
 
             /* Close out the standard file descriptors */
@@ -387,15 +318,12 @@ int main(int argc, char** argv)
             close(STDOUT_FILENO);
             close(STDERR_FILENO);
 
-            /* change task status and log info */
+            /* change task status */ 
             pending_task->status = STATUS_DONE;
-            syslog(LOG_INFO, TASK_COMPLETE_INFO, pending_task->command);
-            closelog();
         }
 
         task_mngr.queue_size = 0;
         task_mngr.queue = realloc(task_mngr.queue, 0);
-        sleep(10);
     }
 
     return 0;

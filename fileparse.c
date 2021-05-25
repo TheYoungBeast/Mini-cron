@@ -13,6 +13,10 @@
 #include <libexplain/open.h>
 #include <libexplain/read.h>
 
+/**
+ * Trims white-spaces
+ * @param s string to be trimmed
+ */
 void trim(char * s) 
 {
     char* p = s;
@@ -24,6 +28,13 @@ void trim(char * s)
     memmove(s, p, l + 1);
 }
 
+/**
+ * Parses buffer to find bash commands
+ * @param buff string buffer
+ * @param pos1 pointer to the beginning of command within the buffer
+ * @param pos2 pointer to the end of command within the buffer
+ * @return string that contains bash command(s)
+ */
 char* parse_command(const char* buff, size_t* pos1, size_t* pos2)
 {
     size_t start = 0;
@@ -55,6 +66,11 @@ char* parse_command(const char* buff, size_t* pos1, size_t* pos2)
     return command;
 }
 
+/**
+ * Parses task file (schedule) into task_array
+ * @param filename path to the raw task schedule
+ * @return An array (struct) of tasks
+ */
 task_array parse_taskfile(const char* filename)
 {
     int desc = open(filename, O_RDONLY, S_IRUSR);
